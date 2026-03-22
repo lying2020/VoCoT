@@ -145,20 +145,86 @@ def load_model(model_path, device='cuda:0', precision='bf16'):
 
     return model, preprocessor
 
+def _condition_one_batch(model, preprocessor, item, max_new_tokens, temperature):
+    input_item = preprocessor(item)
+    data_collator = SFT_DataCollator(tokenizer=preprocessor.tokenizer, sd_tokenizer=None)
+    batch = data_collator([input_item])
+    txt_res, out_imgs, txt_ids = model.condition_completion(
+        batch,
+        avoid_image_gen=True,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+    )
+    return txt_res
+
+
 def infer(model, preprocessor, image, query, cot=True, max_new_tokens=1024, temperature=0.0):
     if cot:
         query = ALL_IMG_TOKENS_STR + DEFAULT_GRD_TOKEN + '\n' + query + COT_ACTIVATION
     else:
         query = ALL_IMG_TOKENS_STR + '\n' + query
-    conv = [{'from': 'human', 'value':query}]
+    conv = [{'from': 'human', 'value': query}]
     item = {'input_images': [image], 'conversation': conv}
-    input_item = preprocessor(item)
-    data_collator = SFT_DataCollator(tokenizer=preprocessor.tokenizer, sd_tokenizer=None)
-    batch = data_collator([input_item])
-    txt_res, out_imgs, txt_ids = model.condition_completion(batch, avoid_image_gen=True, 
-                                                            max_new_tokens=max_new_tokens, temperature=temperature)
+    return _condition_one_batch(model, preprocessor, item, max_new_tokens, temperature)
 
-    return txt_res
+
+def infer_multiturn(
+    model,
+    preprocessor,
+    image,
+    turns,
+    cot_last=True,
+    max_new_tokens=1024,
+    temperature=0.0,
+):
+    """
+    多轮对话式推理：同一张图，带历史 user/assistant 轮次，只生成最后一轮 assistant。
+
+    turns: list[tuple[str, str]]，每项为 (role, text)，role 为 'user' 或 'assistant'。
+    须以 user 开始、user 结束，且严格交替（user, assistant, user, ...）。
+
+    首轮 user 自动加 <ImageHere> + <grounding>；仅在最后一轮 user 上附加 VoCoT COT 提示（cot_last=True）。
+    """
+    if not turns or turns[0][0] != 'user' or turns[-1][0] != 'user':
+        raise ValueError("turns 须非空、以 user 开始并以 user 结束")
+    for i, (role, _) in enumerate(turns):
+        expect = 'user' if i % 2 == 0 else 'assistant'
+        if role != expect:
+            raise ValueError(f"turns[{i}] 应为 {expect}，得到 {role}")
+
+    conv = []
+    n = len(turns)
+    for i, (role, text) in enumerate(turns):
+        if role == 'user':
+            if i == 0:
+                text = ALL_IMG_TOKENS_STR + DEFAULT_GRD_TOKEN + '\n' + text
+            if i == n - 1 and cot_last:
+                text = text + COT_ACTIVATION
+            conv.append({'from': 'human', 'value': text})
+        else:
+            conv.append({'from': 'gpt', 'value': text})
+
+    item = {'input_images': [image], 'conversation': conv}
+    return _condition_one_batch(model, preprocessor, item, max_new_tokens, temperature)
+
+
+def infer_multihop_document(
+    model,
+    preprocessor,
+    image,
+    query,
+    cot=True,
+    hop_instruction=None,
+    max_new_tokens=2048,
+    temperature=0.0,
+):
+    """
+    单次生成多 HOP 的「文档式」输出：在问题后附加 MULTIHOP_DOC_INSTRUCTION（可自定义），再走 infer。
+    适合需要分节、多跳推理链但不要求真实多轮对话的场景。
+    """
+    extra = hop_instruction if hop_instruction is not None else MULTIHOP_DOC_INSTRUCTION
+    full_query = query.rstrip() + '\n\n' + extra
+    return infer(model, preprocessor, image, full_query, cot=cot, max_new_tokens=max_new_tokens, temperature=temperature)
             
 
 if __name__=='__main__':

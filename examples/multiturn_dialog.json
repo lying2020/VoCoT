@@ -1,0 +1,5 @@
+[
+  {"role": "user", "content": "What are the main objects visible in this image?"},
+  {"role": "assistant", "content": "There are several objects; the most salient ones are in the center of the image."},
+  {"role": "user", "content": "What spatial relation holds between the two most salient objects? Answer with step-by-step reasoning."}
+]

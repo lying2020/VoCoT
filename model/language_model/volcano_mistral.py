@@ -423,10 +423,19 @@ class VolCanoMistralForCausalLM(MistralForCausalLM, VolCanoMetaForCausalLM):
             self.cache_images = self.encode_img(model_inputs['input_images'][0][:1])[0]
         valid_start_ind = torch.where(original_input_ids==self.boc_token_id)[1].tolist()[-1]
         current_box_text = self.tokenizer.decode(original_input_ids[0, valid_start_ind:])
-        current_box = torch.tensor(extract_box_str(current_box_text, mistral=True), dtype=self.dtype, device=self.cache_images.device)
-        if current_box is None:
-            print('fail to detect correct box from {}'.format(current_box_text))
-            raise ValueError
+        parsed = extract_box_str(current_box_text, mistral=True)
+        if parsed is None:
+            # 模型若未按 <coor>0.xx,0.xx,0.xx,0.xx</coor> 格式输出，extract 会返回 None；不能直接 torch.tensor(None)
+            n = getattr(self, "_box_parse_fallback_warn_count", 0)
+            if n < 5:
+                print(
+                    "generate_box: 无法解析 grounding 框，使用全图 [0,0,1,1]；片段: %r"
+                    % (current_box_text[:400],),
+                    flush=True,
+                )
+                self._box_parse_fallback_warn_count = n + 1
+            parsed = [0.0, 0.0, 1.0, 1.0]
+        current_box = torch.tensor(parsed, dtype=self.dtype, device=self.cache_images.device)
         box_feat = self.box_align(self.cache_images[0], current_box.unsqueeze(0))[0]
         init_inputs_embeds = self.get_input_embeddings()(model_inputs['input_ids'])
         next_inputs_embeds = torch.cat([init_inputs_embeds, box_feat.unsqueeze(0)], dim=1)

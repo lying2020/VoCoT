@@ -38,8 +38,12 @@ def get_output_name(args, mid_output=True):
                             '{}.json'.format(args.dataset_name))
 
 def get_all_output_names(args):
-    return [os.path.join(args.output_dir, 
-                            '{}_rank{}.json'.format(args.dataset_name, r)) for r in range(args.n_gpus)]
+    if not getattr(args, "distributed", False):
+        return [get_output_name(args, mid_output=True)]
+    return [
+        os.path.join(args.output_dir, "{}_rank{}.json".format(args.dataset_name, r))
+        for r in range(args.n_gpus)
+    ]
 
 class CLIPTransform:
     def __init__(self, transform, square_size=None):
@@ -81,6 +85,12 @@ def main():
     parser.add_argument('--desc', action='store_true')
     parser.add_argument('--no_bind', action='store_true')
     parser.add_argument('--sub_image', action='store_true')
+    parser.add_argument(
+        '--log_every',
+        type=int,
+        default=500,
+        help='每完成若干条样本在本进程打一条 INFO 日志（含最近一条的 item_id 与预测预览）；0 表示关闭',
+    )
     args = parser.parse_args()
 
     print(args)
@@ -137,6 +147,15 @@ def main():
     
     logger.info('loading model from {}'.format(model_path))
     llama_config = config_class.from_pretrained(model_path)
+    # 与 model.load_model 一致：离线时用 project.clip_vit_large_patch14_336_path，避免访问 huggingface.co
+    from model.load_model import _resolve_local_clip_path
+
+    local_clip = _resolve_local_clip_path()
+    if local_clip and getattr(llama_config, "vision_encoder", None) is not None:
+        ve = str(llama_config.vision_encoder)
+        if "openai" in ve and "clip" in ve.lower():
+            logger.info("vision_encoder: use local CLIP {} (was {})".format(local_clip, ve))
+            llama_config.vision_encoder = local_clip
     model = model_class.from_pretrained(model_path, config=llama_config)
 
     model.input_img_id = tokenizer.convert_tokens_to_ids(DEFAULT_IMG_TOKEN)
@@ -195,7 +214,11 @@ def main():
     logger.info('loading dataset as {}'.format(json.dumps(OmegaConf.to_object(config))))
     dataset = instantiate_from_config(config[0])
     if args.sub_sample > 0:
-        dataset.meta = dataset.meta[:args.sub_sample]
+        # GQADataset：meta 为 dict，用 keys 列表定序；其它多数数据集 meta 为 list
+        if hasattr(dataset, "keys") and isinstance(getattr(dataset, "meta", None), dict):
+            dataset.keys = dataset.keys[: args.sub_sample]
+        else:
+            dataset.meta = dataset.meta[: args.sub_sample]
     if args.for_llava:
         dataset.for_llava = True
     if hasattr(dataset, 'expand2square'):
@@ -224,30 +247,47 @@ def main():
     logger.info("  Num examples = %d", len(dataset))
 
     current_res = []
+    step_idx = 0
+    dl_total = len(dl)
+
+    def _log_periodic(tmp_dict):
+        if not getattr(args, "log_every", 0) or step_idx % args.log_every != 0:
+            return
+        pred = tmp_dict.get("prediction") or tmp_dict.get("predict") or ""
+        preview = (pred[:200] + "…") if len(pred) > 200 else pred
+        # 分布式下非 0 号进程的 logger 无 handler（见 setup_logger），进度用 print 保证各 rank 可见
+        msg = (
+            f"[rank {args.local_rank}] 本进程进度 {step_idx}/{dl_total} | "
+            f"item_id={tmp_dict.get('item_id', '')} | prediction 预览: {preview}"
+        )
+        print(msg, flush=True)
+        if args.local_rank <= 0:
+            logger.info(msg)
+
     with torch.inference_mode(), torch.no_grad():
         for batch in tqdm.tqdm(dl, desc='evaluating'):
             if args.evaluate_loss:
                 assert args.likelihood_reduction in ['sum', 'mean']
-                # pred, t = model.calculate_options(batch, cot=args.cot, max_new_tokens=args.max_new_tokens, temperature=args.temperature, further_instruct=args.option_instruct)
-                try:
-                    pred, t = model.calculate_options(batch, cot=args.cot, max_new_tokens=args.max_new_tokens, temperature=args.temperature, further_instruct=args.option_instruct, likelihood_reduction=args.likelihood_reduction)
-                except:
-                    print('fail to predict {}'.format(batch['item_id'][0]))
-                    pred = ''
-                    t = ''
+                pred, t = model.calculate_options(
+                    batch,
+                    cot=args.cot,
+                    max_new_tokens=args.max_new_tokens,
+                    temperature=args.temperature,
+                    further_instruct=args.option_instruct,
+                    likelihood_reduction=args.likelihood_reduction,
+                )
                 tmp_dict = {
-                        'item_id': batch['item_id'][0],
-                        'predict': pred
-                    }
+                    'item_id': batch['item_id'][0],
+                    'predict': pred,
+                }
                 if args.cot:
                     tmp_dict['thought'] = t
                 if hasattr(dataset, 'getlabel'):
-                    try:
-                        item_id = int(tmp_dict['item_id'].split('_')[-1])
-                        tmp_dict['label'] = dataset.getlabel(item_id)
-                    except:
-                        pass
+                    item_id = int(tmp_dict['item_id'].split('_')[-1])
+                    tmp_dict['label'] = dataset.getlabel(item_id)
                 current_res.append(tmp_dict)
+                step_idx += 1
+                _log_periodic(tmp_dict)
                 continue
             # generation-based evaluation here
             # txt_res, out_imgs, txt_ids = model.condition_completion(batch, avoid_image_gen=args.avoid_image_gen, 
@@ -270,48 +310,49 @@ def main():
             #         'thought': txt_res[0],
             #         'prediction': final_pred[0]
             #     }
-            try:
-                txt_res, out_imgs, txt_ids = model.condition_completion(batch, avoid_image_gen=args.avoid_image_gen, 
-                                                            max_new_tokens=args.max_new_tokens, temperature=args.temperature)
-                if args.cot and not args.desc:
-                    item_id = int(batch['item_id'][0].split('_')[-1])
-                    final_round_input = dataset.cot_turn(item_id, txt_res[0], txt_ids, eoc_id=model.eoc_token_id, img_id=model.input_img_id, mistral=args.use_mistral, sub_image_bind=args.sub_image)
-                    final_batch = data_collator([preprocessor(final_round_input)])
-                    final_pred, out_imgs, _ = model.condition_completion(final_batch, avoid_image_gen=args.avoid_image_gen,
-                                                                    max_new_tokens=args.max_new_tokens, temperature=args.temperature)
-                    tmp_dict = {
-                        'item_id': batch['item_id'][0],
-                        'thought': txt_res[0],
-                        'prediction': final_pred[0]
-                    }
-                else:
-                    tmp_dict = {
-                        'item_id': batch['item_id'][0],
-                        'prediction': txt_res[0]
-                    }
-            except:
-                print('fail to predict {}'.format(batch['item_id'][0]))
-                if args.cot:
-                    tmp_dict = {
-                        'item_id': batch['item_id'][0],
-                        'thought': '',
-                        'prediction': ''
-                    }
-                else:
-                    tmp_dict = {
-                        'item_id': batch['item_id'][0],
-                        'prediction': ''
-                    }
+            txt_res, out_imgs, txt_ids = model.condition_completion(
+                batch,
+                avoid_image_gen=args.avoid_image_gen,
+                max_new_tokens=args.max_new_tokens,
+                temperature=args.temperature,
+            )
+            if args.cot and not args.desc:
+                item_id = int(batch['item_id'][0].split('_')[-1])
+                cot_kw = dict(
+                    eoc_id=model.eoc_token_id,
+                    img_id=model.input_img_id,
+                    mistral=args.use_mistral,
+                )
+                # 仅部分 Dataset 的 cot_turn 支持 sub_image_bind（如 POPE）；GQA 等未声明该参数时不能传
+                if args.sub_image:
+                    cot_kw["sub_image_bind"] = args.sub_image
+                final_round_input = dataset.cot_turn(item_id, txt_res[0], txt_ids, **cot_kw)
+                final_batch = data_collator([preprocessor(final_round_input)])
+                final_pred, out_imgs, _ = model.condition_completion(
+                    final_batch,
+                    avoid_image_gen=args.avoid_image_gen,
+                    max_new_tokens=args.max_new_tokens,
+                    temperature=args.temperature,
+                )
+                tmp_dict = {
+                    'item_id': batch['item_id'][0],
+                    'thought': txt_res[0],
+                    'prediction': final_pred[0],
+                }
+            else:
+                tmp_dict = {
+                    'item_id': batch['item_id'][0],
+                    'prediction': txt_res[0],
+                }
             if hasattr(dataset, 'getlabel'):
-                try:
-                    item_id = int(tmp_dict['item_id'].split('_')[-1])
-                    tmp_dict['label'] = dataset.getlabel(item_id)
-                except:
-                    pass
+                item_id = int(tmp_dict['item_id'].split('_')[-1])
+                tmp_dict['label'] = dataset.getlabel(item_id)
             if hasattr(dataset, 'get_index'):
                 item_id = int(tmp_dict['item_id'].split('_')[-1])
                 tmp_dict['dataset_id'] = dataset.get_index(item_id)
             current_res.append(tmp_dict)
+            step_idx += 1
+            _log_periodic(tmp_dict)
     # remove duplication if necessary in Distributed version
     if args.distributed and len(dataset) % args.n_gpus != 0:
         residual_samples = len(dataset) % args.n_gpus
@@ -325,6 +366,18 @@ def main():
 
     if args.no_barrier:
         torch.save(args, get_output_name(args, mid_output=False)[:-4]+'args.bin')
+        return
+
+    if not args.distributed:
+        if args.local_rank == 0 or args.local_rank == -1:
+            full_res = []
+            for fn in get_all_output_names(args):
+                if os.path.isfile(fn):
+                    full_res.extend(json.load(open(fn, 'r')))
+                    os.remove(fn)
+            with open(get_output_name(args, mid_output=False), 'w') as wf:
+                json.dump(full_res, wf)
+            torch.save(args, get_output_name(args, mid_output=False)[:-4]+'args.bin')
         return
 
     torch.distributed.barrier()

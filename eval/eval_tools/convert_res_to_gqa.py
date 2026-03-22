@@ -4,11 +4,17 @@ import argparse
 from omegaconf import OmegaConf
 from utils.util import instantiate_from_config
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--src", type=str)
-parser.add_argument("--dst", type=str)
+parser = argparse.ArgumentParser(description="将 evaluate_benchmark 输出的 JSON 转为 GQA 官方 eval 所需的 predictions 格式。")
+parser.add_argument("--src", type=str, required=True, help="evaluate_benchmark 产出的 *.json（列表，每项含 item_id、prediction）")
+parser.add_argument("--dst", type=str, required=True, help="输出路径，写入 [{questionId, prediction}, ...]")
+parser.add_argument(
+    "--config",
+    type=str,
+    default="config/datasets/eval/GQA.yaml",
+    help="与推理时相同的 GQA 数据集 YAML（用于按 item_id 下标对齐 question id）",
+)
 args = parser.parse_args()
-cfg = OmegaConf.load('/mnt/bn/yangmin-priv/luoruipu/code/Edit-GPT4/config/datasets/eval/GQA.yaml')
+cfg = OmegaConf.load(args.config)
 ds = instantiate_from_config(cfg[0])
 
 all_answers = []

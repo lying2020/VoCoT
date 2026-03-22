@@ -477,11 +477,27 @@ class VolCanoMetaForCausalLM(ABC):
         new_visual_labels = [] # the visual labels are the regression targets
         new_visual_label_masks = [] # the visual label masks indicating if loss is required
         cur_image_idx = 0
+
+        def _safe_feat_idx(idx: int) -> int:
+            """序列里 image token 数可能多于 encode 得到的 image_features（如 CoT 第二轮多出了占位），复用最后一项避免 IndexError。"""
+            if not image_features:
+                return 0
+            return idx if idx < len(image_features) else len(image_features) - 1
+
         for batch_idx, cur_input_ids in enumerate(input_ids):
             num_images = (cur_input_ids == self.input_img_id).sum()
             # process the sequence without images
             if num_images == 0:
-                cur_image_features = image_features[cur_image_idx]
+                si = _safe_feat_idx(cur_image_idx)
+                if cur_image_idx >= len(image_features):
+                    import warnings
+
+                    warnings.warn(
+                        "prepare_inputs_labels_for_multimodal: num_images==0 但 cur_image_idx 已越界，"
+                        "复用最后一项图像特征 (cur_image_idx=%s, len=%s)"
+                        % (cur_image_idx, len(image_features)),
+                    )
+                cur_image_features = image_features[si]
                 cur_input_embeds_1 = self.get_model().embed_tokens(cur_input_ids)
                 cur_input_embeds = torch.cat([cur_input_embeds_1, cur_image_features[0:0]], dim=0)
                 new_input_embeds.append(cur_input_embeds)
@@ -516,9 +532,18 @@ class VolCanoMetaForCausalLM(ABC):
                 cur_new_visual_label_masks.append(torch.zeros(cur_input_embeds_no_im[i].shape[0]).to(dtype=current_dtype, device=current_device))
 
                 if i < num_images:
-                    cur_image_features = image_features[cur_image_idx]
-                    cur_visual_labels = visual_labels[cur_image_idx]
-                    cur_visual_label_masks = visual_label_masks[cur_image_idx]
+                    si = _safe_feat_idx(cur_image_idx)
+                    if cur_image_idx >= len(image_features):
+                        import warnings
+
+                        warnings.warn(
+                            "prepare_inputs_labels_for_multimodal: 序列中 image token 多于 image_features，"
+                            "复用最后一组特征 (cur_image_idx=%s, len=%s, num_images=%s)"
+                            % (cur_image_idx, len(image_features), int(num_images)),
+                        )
+                    cur_image_features = image_features[si]
+                    cur_visual_labels = visual_labels[si]
+                    cur_visual_label_masks = visual_label_masks[si]
                     cur_image_idx += 1
                     cur_new_input_embeds.append(cur_image_features)
                     cur_new_labels.append(torch.full((cur_image_features.shape[0],), IGNORE_INDEX, device=cur_labels.device, dtype=cur_labels.dtype))

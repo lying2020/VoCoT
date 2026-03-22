@@ -40,3 +40,11 @@ DEFAULT_EOI_TOKEN = '</Img>'
 DEFAULT_IMG_TOKEN = '<ImageHere>'
 COT_ACTIVATION = 'Answer the question and include the reasoning proess. Locate key objects and provide bounding boxes in your thoughts.'
 COT_ACTIVATION_TXT = 'Answer the question and include the reasoning proess.'
+
+# 单次生成中的多跳文档结构（与 VoCoT grounding 配合；可按任务改写）
+MULTIHOP_DOC_INSTRUCTION = (
+    "Output your reasoning as a structured document in Markdown. "
+    "Use headings ### HOP 1, ### HOP 2, ... (each hop builds on the previous). "
+    "In each hop, ground on the image when mentioning objects (use <coor> when applicable). "
+    "End with ### Final Answer for the concise conclusion."
+)

@@ -48,8 +48,17 @@ def extract_box_str(output, mistral=False):
     if len(tmp_box) > 4:
         tmp_box = tmp_box[:4]
     elif len(tmp_box) != 4:
-        return None
-    assert(len(tmp_box) == 4)
+        # 宽松：从 <coor>...</coor> 内用 \d+\.\d+ 取前 4 个浮点（容错如 0.95.0.733 少写逗号）
+        m = re.search(r"<coor>(.*?)</coor>", output, re.DOTALL)
+        if m:
+            nums = re.findall(r"\d+\.\d+", m.group(1))
+            if len(nums) >= 4:
+                tmp_box = [float(x) for x in nums[:4]]
+            else:
+                return None
+        else:
+            return None
+    assert len(tmp_box) == 4
     return tmp_box
 
 def extract_all_box_str(output, mistral=False):

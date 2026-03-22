@@ -96,6 +96,7 @@ function run_all(){
         output_dir=output/${dataset_name}/${store_model_name}/cot/
         echo "========GQA Result Need Further Evaluation==========="
         python3 eval/eval_tools/convert_res_to_gqa.py \
+          --config ${dataset_config} \
           --src ${output_dir}/GQA.json \
           --dst ${output_dir}/testdev_balanced_predictions.json
     }

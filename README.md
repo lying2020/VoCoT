@@ -18,6 +18,9 @@ In this repository, we will release:
 ## Contents
 - [Getting Started](#getting-started)
 - [本地快速开始（中文）](./doc/QUICKSTART.md)
+- [多轮 / 多 HOP 推理调测](./doc/MULTIHOP.md)
+- [RefBind / 坐标绑定与维度说明](./doc/REFBIND_AND_DIMENSIONS.md)
+- [RefBind 与 `</coor>` 多 patch 拼接（算法细述）](./doc/REFBIND_ALGORITHM.md)
 - [Data](#data)
 - [Model Weights](#model-weights)
 - [Train](#train)

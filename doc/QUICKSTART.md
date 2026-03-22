@@ -2,6 +2,10 @@
 
 面向在本仓库根目录下开发与运行的说明；与官方 [README.md](../README.md) 互补，补充环境细节、目录说明与一键推理命令。
 
+**多轮对话 / 多 HOP 文档式推理**（调测脚本与 API）见 [MULTIHOP.md](./MULTIHOP.md)。
+
+**保存推理结果、框可视化、RefBind 说明**：使用 `run_inference_save.py`（结果写入 `output/`，并复制 [REFBIND_AND_DIMENSIONS.md](./REFBIND_AND_DIMENSIONS.md)）。
+
 ---
 
 ## 1. Conda 环境与依赖

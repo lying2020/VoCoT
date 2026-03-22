@@ -1,0 +1,5 @@
+- gqa:
+  target: locals.datasets.eval.short_qa.GQADataset
+  params:
+    path: /home1/cjl/MM_2026/dataset/GQA_Bench/questions1.2/testdev_balanced_questions.json
+    base_path: /home1/cjl/MM_2026/dataset/GQA_Bench/images/images
