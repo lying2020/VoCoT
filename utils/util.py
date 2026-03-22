@@ -1,7 +1,6 @@
 
 import os
 import numpy as np
-import matplotlib.pyplot as plt
 import re
 import textwrap
 import importlib
@@ -34,6 +33,8 @@ def sanitize_filename(filename):
     return re.sub('[^0-9a-zA-Z]+', '_', filename)
 
 def plot_images_and_text(predicted_image1, predicted_image2, groundtruth_image, generated_text, gt_text, save_dir, task_name, input_texts, input_images):
+    import matplotlib.pyplot as plt
+
     task_path = os.path.join(save_dir, task_name)
     if not os.path.exists(task_path):
         os.makedirs(task_path)

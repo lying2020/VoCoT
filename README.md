@@ -17,6 +17,7 @@ In this repository, we will release:
 
 ## Contents
 - [Getting Started](#getting-started)
+- [本地快速开始（中文）](./doc/QUICKSTART.md)
 - [Data](#data)
 - [Model Weights](#model-weights)
 - [Train](#train)
