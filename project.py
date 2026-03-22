@@ -35,6 +35,7 @@ vsr_ramdom_path = os.path.join(vsr_path, "vsr_random")
 models_path = "/home1/cjl/models"
 llava_v15_7b_path = os.path.join(models_path, "llava-v1.5-7b")
 clip_vit_large_patch14_path = os.path.join(models_path, "clip-vit-large-patch14")
+# VoCoT 默认用 336；model.load_model 在 vision_encoder 为 openai/clip-* 时会改为此本地目录，避免联网拉 CLIP
 clip_vit_large_patch14_336_path = os.path.join(models_path, "clip-vit-large-patch14-336")
 anole_7b_v0_1_path = os.path.join(models_path, "anole-7b")
 volcano_7b_kaist_ai_path = os.path.join(models_path, "volcano-7b_kaist_ai")

@@ -7,7 +7,13 @@ def build_vision_encoder(vision_encoder_cfg, **kwargs):
     vision_tower = getattr(vision_encoder_cfg, 'vision_encoder', None)
     is_absolute_path_exists = os.path.exists(vision_tower)
 
-    if vision_tower.startswith("openai") or (is_absolute_path_exists and (vision_tower.startswith("OFA-Sys") or vision_tower.startswith("laion"))):
+    # 本地已下载的 HuggingFace 格式 CLIP 目录（含 config.json 等），无需访问 huggingface.co
+    _local_clip = (
+        is_absolute_path_exists
+        and os.path.isdir(vision_tower)
+        and ("clip" in os.path.basename(vision_tower).lower())
+    )
+    if vision_tower.startswith("openai") or (is_absolute_path_exists and (vision_tower.startswith("OFA-Sys") or vision_tower.startswith("laion"))) or _local_clip:
         return CLIPVisionTower(vision_tower, args=vision_encoder_cfg, **kwargs)
     elif is_absolute_path_exists and 'eva' in vision_tower:
         return create_eva_vit_g(vision_encoder_cfg.vision_encoder, **kwargs)

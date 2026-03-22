@@ -25,6 +25,22 @@ from utils.logger import setup_logger
 import json
 import tqdm
 
+
+def _resolve_local_clip_path():
+    """优先环境变量 VOCOT_LOCAL_CLIP_PATH，否则使用 project.clip_vit_large_patch14_336_path（离线加载 CLIP，避免访问 huggingface.co）。"""
+    p = os.environ.get("VOCOT_LOCAL_CLIP_PATH", "").strip()
+    if p and os.path.isdir(p):
+        return p
+    try:
+        from project import clip_vit_large_patch14_336_path as p2
+
+        if p2 and os.path.isdir(p2):
+            return p2
+    except ImportError:
+        pass
+    return None
+
+
 def rank0_print(args, res):
     if args.local_rank==0 or args.local_rank == -1:
         print(res)
@@ -71,6 +87,11 @@ def load_model(model_path, device='cuda:0', precision='bf16'):
     )
     
     llama_config = config_class.from_pretrained(model_path)
+    local_clip = _resolve_local_clip_path()
+    if local_clip and getattr(llama_config, "vision_encoder", None) is not None:
+        ve = str(llama_config.vision_encoder)
+        if "openai" in ve and "clip" in ve.lower():
+            llama_config.vision_encoder = local_clip
     model = model_class.from_pretrained(model_path, config=llama_config)
 
     model.input_img_id = tokenizer.convert_tokens_to_ids(DEFAULT_IMG_TOKEN)

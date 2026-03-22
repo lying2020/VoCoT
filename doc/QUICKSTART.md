@@ -53,8 +53,16 @@ sudo apt-get install python3-tk -y
 
 **常见注意：**
 
-- 保持 `requirements.txt` 中的 `transformers==4.37.2`、`diffusers==0.14.0` 等版本，随意大版本升级可能导致不兼容。
+- 保持 `requirements.txt` 中的 `transformers==4.37.2` 等锁定；`diffusers` 已调整为 `>=0.30,<0.36`（与新版 `huggingface_hub`、`accelerate` 兼容，见下「常见问题」）。
 - 核心栈：`torch>=2.0`、`transformers`、`accelerate`、`peft`、`lightning`、`timm`、`open_clip_torch`、`xformers`、`deepspeed` 等。
+
+### 常见问题：NumPy / matplotlib / diffusers
+
+| 现象 | 处理 |
+|------|------|
+| `AttributeError: _ARRAY_API` / `numpy.core.multiarray failed to import`（NumPy 2 + 旧 matplotlib） | 使用 NumPy 2 时安装 **`matplotlib>=3.8`**：`pip install "matplotlib>=3.8.0,<4"`；或改用 **`numpy<2`** 并搭配 **`matplotlib==3.7`**。 |
+| `cannot import name 'cached_download' from 'huggingface_hub'`（旧 diffusers 0.14） | 升级 **`diffusers>=0.30`**：`pip install "diffusers>=0.30.0,<0.36.0"`，仓库已兼容 `DiagonalGaussianDistribution` 的新旧导入路径。 |
+| 推理时仍请求 `huggingface.co/openai/clip-vit-large-patch14-336` | 将 CLIP 按 HuggingFace 格式放到 **`project.py` 里的 `clip_vit_large_patch14_336_path`** 指向的目录；或设置环境变量 **`VOCOT_LOCAL_CLIP_PATH=/你的/clip-vit-large-patch14-336`**。`load_model` 会把配置里的 `openai/clip-*` 自动替换为该本地路径。 |
 
 ---
 

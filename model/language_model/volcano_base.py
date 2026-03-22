@@ -210,7 +210,10 @@ class VolCanoMetaForCausalLM(ABC):
                     param.requires_grad = False
                 self.vit_ln = self.vit_ln.eval()
                 self.vit_ln.train = disabled_train
-            if 'openai' in getattr(config, 'vision_encoder', None):
+            _ve = str(getattr(config, 'vision_encoder', '') or '')
+            if hasattr(self.vision_encoder, 'num_patches'):
+                self.n_query = self.vision_encoder.num_patches
+            elif 'openai' in _ve:
                 self.n_query = int((self.vision_encoder.config.image_size / self.vision_encoder.config.patch_size)**2)
             config.mm_hidden_size = self.vision_encoder.num_features
             print('End Create VIT')

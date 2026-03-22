@@ -25,7 +25,11 @@ from constants import *
 import random
 from utils.util import rank_0_print
 import torch.nn.functional as F
-from diffusers.models.vae import DiagonalGaussianDistribution
+try:
+    from diffusers.models.vae import DiagonalGaussianDistribution
+except ImportError:
+    # diffusers>=0.30 移动模块路径；与 huggingface_hub>=0.21 + accelerate 兼容需较新 diffusers
+    from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from transformers import StoppingCriteria, StoppingCriteriaList
 from utils.eval_util import extract_box_str
 from locals.datasets.utils.box_utils import *
@@ -229,7 +233,10 @@ class VolCanoLlamaForCausalLM(LlamaForCausalLM):
                     param.requires_grad = False
                 self.vit_ln = self.vit_ln.eval()
                 self.vit_ln.train = disabled_train
-            if 'openai' in getattr(config, 'vision_encoder', None):
+            _ve = str(getattr(config, 'vision_encoder', '') or '')
+            if hasattr(self.vision_encoder, 'num_patches'):
+                self.n_query = self.vision_encoder.num_patches
+            elif 'openai' in _ve:
                 self.n_query = int((self.vision_encoder.config.image_size / self.vision_encoder.config.patch_size)**2)
             config.mm_hidden_size = self.vision_encoder.num_features
             print('End Create VIT')

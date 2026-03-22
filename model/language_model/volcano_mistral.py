@@ -27,7 +27,10 @@ from constants import *
 import random
 from utils.util import rank_0_print
 import torch.nn.functional as F
-from diffusers.models.vae import DiagonalGaussianDistribution
+try:
+    from diffusers.models.vae import DiagonalGaussianDistribution
+except ImportError:
+    from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from transformers import StoppingCriteria, StoppingCriteriaList
 from utils.eval_util import extract_box_str
 from locals.datasets.utils.box_utils import *

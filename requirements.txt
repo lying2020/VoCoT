@@ -1,4 +1,5 @@
-# matplotlib<3.8 与 NumPy 2.x 不兼容（AttributeError: _ARRAY_API）；使用 NumPy 2 时请使用 matplotlib>=3.8
+# NumPy 2.x 需 matplotlib>=3.8；旧版 matplotlib 3.7 仅与 NumPy 1.x 搭配
+# diffusers==0.14 与 huggingface_hub>=0.21（accelerate/transformers 所需）冲突；请使用 diffusers>=0.30
 aiohttp==3.8.4
 aiosignal==1.3.1
 async-timeout==4.0.2
@@ -53,7 +54,7 @@ rouge
 pytorch-fid
 torch-fidelity
 torchmetrics
-diffusers==0.14.0
+diffusers>=0.30.0,<0.36.0
 opencv-python-headless
 prettytable
 deepspeed>=0.9.3
