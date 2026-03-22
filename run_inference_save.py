@@ -41,7 +41,8 @@ from utils.vocot_output_viz import (
 
 
 def _default_image_path() -> str:
-    p_custom = os.path.join(images_dir, "default.jpg")
+    # p_custom = os.path.join(images_dir, "default.jpg")
+    p_custom = "/home1/cjl/MM_2026/dataset/GQA_Bench/images/images/2363419.jpg"
     p_figs = os.path.join(_REPO_ROOT, "images", "sample_input.jpg")
     if os.path.isfile(p_custom):
         return p_custom
@@ -150,7 +151,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="VoCoT inference + save viz to output/")
     parser.add_argument("--model_path", type=str, default=None)
     parser.add_argument("--image", type=str, default=_default_image_path())
-    parser.add_argument("--query", type=str, default="Describe the image.")
+    # parser.add_argument("--query", type=str, default="Describe the image.")
+    parser.add_argument("--query", type=str, default="Do all these people have the same gender?", help="文本问题")
     parser.add_argument("--no_cot", action="store_true")
     parser.add_argument("--precision", type=str, default="fp16", choices=("fp16", "bf16", "fp32"))
     parser.add_argument("--device", type=str, default="cuda:0")

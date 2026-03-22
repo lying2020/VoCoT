@@ -137,7 +137,9 @@ run_gqa_bench.py
 - `evaluate_benchmark` 为 **batch_size=1** 顺序推理；
 - 官方 `eval.py` 在 CPU 上遍历预测与场景图，相对推理通常 **占比很小**。
 
-**经验上**：全量 val（约 13 万题）单次推理往往是 **数小时级到数十小时级**（视 GPU 而定）；testdev（约 1.26 万题）同比例缩短。正式跑之前建议缩短流程做冒烟测试（例如临时改用小问题子集或单独写脚本只跑前 N 条；**注意** `evaluate_benchmark` 的 `--sub_sample` 对部分数据集是切片 `meta` 列表，与 GQA 的字典结构未必兼容，需自行验证）。
+**经验上**：全量 val（约 13 万题）单次推理往往是 **数小时级到数十小时级**（视 GPU 而定）；testdev（约 1.26 万题）同比例缩短。
+
+**子集 + 官方指标（val）**：`run_gqa_bench.py` 在 `--split val` 且 `--max_samples N`（`N>0`）时，会按与 `GQADataset` 相同的键顺序截取前 `N` 题，写出过滤后的 `questions`/`choices` JSON，并调用带一行补丁的官方 `eval.py`，从而在子集上仍打印与全量相同的指标类型（数值仅反映该子集，不可与全量 val 直接比）。子集文件默认写在 `{output_dir}/_gqa_subset_official/`。
 
 ---
 
@@ -146,6 +148,7 @@ run_gqa_bench.py
 | 说明 | 路径 |
 |------|------|
 | 一键评测入口 | `run_gqa_bench.py`（仓库根目录） |
+| 仅推理试跑（GQA 图+题，不写评测 JSON） | `run_gqa_inference_demo.py`（默认 `output/gqa/<模型名>/inference_demo/`：`manifest.json`、`results.json`、`images/`） |
 | 推理入口 | `eval/evaluate_benchmark.py` |
 | 格式转换 | `eval/eval_tools/convert_res_to_gqa.py` |
 | 数据集类 | `locals/datasets/eval/short_qa.py` → `GQADataset` |

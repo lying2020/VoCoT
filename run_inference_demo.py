@@ -29,7 +29,8 @@ from project import images_dir, volcano_7b_luoruipu1_path
 
 
 def _default_image_path() -> str:
-    p_custom = os.path.join(images_dir, "default.jpg")
+    # p_custom = os.path.join(images_dir, "default.jpg")
+    p_custom = "/home1/cjl/MM_2026/dataset/GQA_Bench/images/images/2363419.jpg"
     p_figs = os.path.join(_REPO_ROOT, "images", "sample_input.jpg")
     if os.path.isfile(p_custom):
         return p_custom
@@ -56,9 +57,10 @@ def main() -> None:
         "--image",
         type=str,
         default=_default_image_path(),
-        help="输入图像；默认优先 test_images/default.jpg，否则 images/sample_input.jpg",
+        help="输入图像；默认优先 images/default.jpg（见 project.images_dir），否则 images/sample_input.jpg",
     )
-    parser.add_argument("--query", type=str, default="Describe the image.", help="文本问题")
+    # parser.add_argument("--query", type=str, default="Describe the image.", help="文本问题")
+    parser.add_argument("--query", type=str, default="Do all these people have the same gender?", help="文本问题")
     parser.add_argument("--no_cot", action="store_true", help="关闭 VoCoT（不附加 grounding/COT 提示）")
     parser.add_argument(
         "--precision",
@@ -76,6 +78,7 @@ def main() -> None:
         help="不打印选用的模型路径等信息",
     )
     args = parser.parse_args()
+    args.image = args.image.strip()
 
     if not os.path.isfile(args.image):
         raise FileNotFoundError(f"找不到图像: {args.image}")

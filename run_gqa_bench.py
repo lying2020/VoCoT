@@ -5,7 +5,8 @@ GQA 评测：evaluate_benchmark → convert_res_to_gqa →（val）官方 eval.p
 在 VoCoT 仓库根目录执行:
   python run_gqa_bench.py
   python run_gqa_bench.py --split testdev            # 默认 5 进程/5 卡；单卡请 --nproc 1
-  python run_gqa_bench.py --max_samples 500 --max_new_tokens 512   # 冒烟 / 提速：子集 + 更短生成长度
+  python run_gqa_bench.py --split val --max_samples 500 --max_new_tokens 512   # val 子集仍会跑官方 eval（指标仅对应该子集）
+  python run_gqa_bench.py --split testdev --max_samples 500
 
 默认路径来自 project.py（volcano_7b_luoruipu1_path、gqa_bench_path）。
 """
@@ -19,6 +20,12 @@ import sys
 _REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
+
+_EVAL_TOOLS = os.path.join(_REPO_ROOT, "eval", "eval_tools")
+if _EVAL_TOOLS not in sys.path:
+    sys.path.insert(0, _EVAL_TOOLS)
+
+import gqa_subset_official_eval  # noqa: E402
 
 from project import gqa_bench_path, volcano_7b_luoruipu1_path
 
@@ -66,7 +73,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description="GQA 完整评测（默认参数见 project.py）")
     p.add_argument("--model_path", type=str, default=volcano_7b_luoruipu1_path, help="模型目录")
     p.add_argument("--gqa_root", type=str, default=gqa_bench_path, help="GQA_Bench 数据集根目录")
-    p.add_argument("--split", type=str, default="testdev", choices=("val", "testdev"))
+    p.add_argument("--split", type=str, default="val", choices=("val", "testdev"))
     p.add_argument("--output_dir", type=str, default=default_out, help="推理与预测 JSON 输出目录")
     p.add_argument(
         "--nproc",
@@ -122,13 +129,6 @@ def main() -> None:
         if nproc > 1:
             print("[run_gqa_bench] 警告: 无法 import torch，请使用 --nproc 1", file=sys.stderr)
             nproc = 1
-
-    if args.split == "val" and args.max_samples > 0 and not args.skip_official_eval:
-        print(
-            "[run_gqa_bench] 提示: 使用了 --max_samples 子集时，官方 eval.py 会要求与 questions 全量对齐；"
-            "子集评测请加 --skip_official_eval，或改跑全量再算指标。",
-            file=sys.stderr,
-        )
 
     yaml_path, pred_name, _qfile = _write_dataset_yaml(args.gqa_root, args.split, args.output_dir)
 
@@ -191,19 +191,38 @@ def main() -> None:
     print(f"已生成官方格式预测: {dst_json}")
 
     if args.split == "val" and not args.skip_official_eval:
-        print("运行官方 GQA eval.py（balanced val）...")
+        subset_dir = os.path.join(args.output_dir, "_gqa_subset_official")
+        if args.max_samples > 0:
+            q_eval, c_eval, n_eff = gqa_subset_official_eval.prepare_val_balanced_subset_files(
+                args.gqa_root, args.max_samples, subset_dir
+            )
+            eval_py = gqa_subset_official_eval.write_subset_safe_eval_script(
+                args.gqa_root, subset_dir
+            )
+            print(
+                f"运行官方 GQA eval（balanced val 子集，前 {n_eff} 题，与推理子集一致）...",
+                flush=True,
+            )
+        else:
+            q_eval = os.path.join(
+                args.gqa_root, "questions1.2", "val_balanced_questions.json"
+            )
+            c_eval = os.path.join(args.gqa_root, "eval", "val_choices.json")
+            eval_py = os.path.join(args.gqa_root, "eval", "eval.py")
+            print("运行官方 GQA eval.py（balanced val 全量）...", flush=True)
+
         subprocess.check_call(
             [
                 sys.executable,
-                os.path.join(args.gqa_root, "eval", "eval.py"),
+                eval_py,
                 "--tier",
                 "val",
                 "--scenes",
                 os.path.join(args.gqa_root, "sceneGraphs", "val_sceneGraphs.json"),
                 "--questions",
-                os.path.join(args.gqa_root, "questions1.2", "val_balanced_questions.json"),
+                q_eval,
                 "--choices",
-                os.path.join(args.gqa_root, "eval", "val_choices.json"),
+                c_eval,
                 "--predictions",
                 dst_json,
             ],
