@@ -30,7 +30,7 @@ vo_cot_path = os.path.join(data_path, "vo-cot", "VoCoT")
 vsr_path = os.path.join(data_path, "VSR")
 vsr_images_path = os.path.join(vsr_path, "images")
 vsr_ramdom_path = os.path.join(vsr_path, "vsr_random")
-
+embspatial_path = os.path.join(data_path, "embspatial")
 
 models_path = "/home1/cjl/models"
 llava_v15_7b_path = os.path.join(models_path, "llava-v1.5-7b")
