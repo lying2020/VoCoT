@@ -12,7 +12,7 @@
 
 默认将本次用到的题目、预测与图片副本写入:
   output/gqa/<模型目录名>/inference_demo/
-  （manifest.json、results.json、images/*.jpg）；可用 --output_dir / --is_save_results 调整。
+  （manifest.json、results.json、images/*.jpg）；可用 --output_dir、--no_save、--no_copy_images 调整。
 """
 from __future__ import annotations
 
@@ -111,10 +111,14 @@ def main() -> None:
         help="评测结果目录；默认 output/gqa/<模型目录名>/inference_demo（仓库根下绝对路径）",
     )
     p.add_argument(
-        "--is_save_results",
-        type=bool,
-        default=False,
-        help="不写 manifest/results/图片副本，仅终端或 --jsonl 输出",
+        "--no_save",
+        action="store_true",
+        help="不写 manifest.json / results.json / 图片副本，仅终端或 --jsonl 输出",
+    )
+    p.add_argument(
+        "--no_copy_images",
+        action="store_true",
+        help="仍写 manifest 与 results.json，但不复制图片（仅记录 source_image_path）",
     )
 
     args = p.parse_args()
@@ -149,14 +153,14 @@ def main() -> None:
         if args.output_dir
         else _default_output_dir(model_path)
     )
-    if args.is_save_results:
+    if not args.no_save:
         os.makedirs(os.path.join(out_dir, "images"), exist_ok=True)
 
     if not args.jsonl:
         print(f"# model_path: {model_path}", file=sys.stderr)
         print(f"# questions: {qpath}", file=sys.stderr)
         print(f"# 本题数: {len(run_keys)}", file=sys.stderr)
-        if args.is_save_results:
+        if not args.no_save:
             print(f"# 输出目录: {out_dir}", file=sys.stderr)
 
     model, preprocessor = load_model(model_path, device=args.device, precision=args.precision)
@@ -184,8 +188,8 @@ def main() -> None:
         text = out[0] if isinstance(out, (list, tuple)) else out
 
         rel_saved = f"images/{qid}.jpg"
-        dst_img = os.path.join(out_dir, rel_saved) if not args.is_save_results else None
-        if not args.is_save_results and not args.no_copy_images:
+        dst_img = os.path.join(out_dir, rel_saved)
+        if not args.no_save and not args.no_copy_images:
             shutil.copy2(img_path, dst_img)
 
         rec = {
@@ -197,11 +201,8 @@ def main() -> None:
         }
         if "answer" in item:
             rec["answer"] = item["answer"]
-        if not args.is_save_results:
-            if args.no_copy_images:
-                rec["saved_image"] = None
-            else:
-                rec["saved_image"] = rel_saved
+        if not args.no_save:
+            rec["saved_image"] = None if args.no_copy_images else rel_saved
 
         results_rows.append(rec)
 
@@ -217,7 +218,7 @@ def main() -> None:
             print(text)
             print()
 
-    if not args.is_save_results:
+    if not args.no_save:
         ts = datetime.now(timezone.utc).isoformat()
         manifest = {
             "created_at_utc": ts,

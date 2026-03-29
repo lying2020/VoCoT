@@ -4,8 +4,11 @@ maze-dataset + VoCoT 本地推理试跑（测试样例）。
 
 功能：
 1) 默认从 ../maze-dataset 动态生成少量迷宫图与问答样本；
-2) 也支持通过 --questions_json 读取现成样本（list[dict]）；
-3) 使用 VoCoT/VolCano 做逐条推理，输出 results/manifest。
+2) 自动生成「带解救路径」的可视化图 maze_XXXX_with_path.png（供人对照；喂给模型的仍是无路径图）；
+3) 也支持通过 --questions_json 读取现成样本（list[dict]，可含 viz_image_filename）；
+4) 使用 VoCoT/VolCano 做逐条推理，输出 results/manifest。
+
+依赖 maze-dataset（Python>=3.10，含 jaxtyping 等）；缺依赖时会提示安装方式。
 
 在 VoCoT 仓库根目录执行：
   python run_maze_inference_demo.py
@@ -66,11 +69,15 @@ def _ensure_maze_importable(maze_repo_dir: str) -> None:
         sys.path.insert(0, maze_repo_dir)
 
 
-def _build_single_sample(solved_maze: Any, image_filename: str) -> dict[str, Any]:
+def _build_single_sample(
+    solved_maze: Any,
+    image_filename: str,
+    viz_image_filename: str | None,
+) -> dict[str, Any]:
     start = tuple(int(x) for x in solved_maze.start_pos.tolist())
     end = tuple(int(x) for x in solved_maze.end_pos.tolist())
     answer = "yes" if start[1] < end[1] else "no"
-    return {
+    row: dict[str, Any] = {
         "question": "Is the green start point on the left side of the red end point? Answer yes or no.",
         "answer": answer,
         "answer_options": ["yes", "no"],
@@ -82,6 +89,40 @@ def _build_single_sample(solved_maze: Any, image_filename: str) -> dict[str, Any
             "path_len": int(solved_maze.solution.shape[0]),
         },
     }
+    if viz_image_filename:
+        row["viz_image_filename"] = viz_image_filename
+    return row
+
+
+def _import_maze_dataset():
+    if sys.version_info < (3, 10):
+        raise RuntimeError(
+            "maze-dataset 在当前依赖链下需要 Python >= 3.10（例如 muutils 的 serializable_dataclass "
+            "在 3.9 上不支持 kw_only）。\n"
+            "建议：conda create -n maze_vocot python=3.10 -y && conda activate maze_vocot\n"
+            "  按 VoCoT README 装好 torch 等后，执行: cd ../maze-dataset && pip install -e .\n"
+            "  再回到 VoCoT 目录运行本脚本。\n"
+            f"当前解释器: {sys.version}"
+        )
+    try:
+        from maze_dataset import MazeDataset, MazeDatasetConfig
+        from maze_dataset.generation import LatticeMazeGenerators
+    except ModuleNotFoundError as e:
+        raise ModuleNotFoundError(
+            "无法导入 maze_dataset。\n"
+            "  • 官方 maze-dataset 需要 Python >= 3.10，且依赖含 jaxtyping、muutils、zanj 等。\n"
+            "  • 推荐在 maze-dataset 仓库根目录执行: pip install -e .\n"
+            "  • 最小补依赖可试: pip install 'jaxtyping>=0.2.19' 'muutils>=0.8.3' 'zanj>=0.5.0' matplotlib tqdm\n"
+            f"  • 缺省模块: {getattr(e, 'name', '') or str(e)}"
+        ) from e
+    except ImportError as e:
+        raise ImportError(
+            "导入 maze_dataset 失败（常为依赖版本不匹配，例如 muutils 过旧缺少 _FORMAT_KEY）。\n"
+            "  • 尝试: pip install -U 'muutils>=0.8.3' 'zanj>=0.5.0'\n"
+            "  • 或在 maze-dataset 仓库根目录: pip install -e .\n"
+            f"  • 原始错误: {e}"
+        ) from e
+    return MazeDataset, MazeDatasetConfig, LatticeMazeGenerators
 
 
 def _generate_maze_samples(
@@ -90,10 +131,10 @@ def _generate_maze_samples(
     n: int,
     grid_n: int,
     seed: int | None,
+    save_solution_viz: bool,
 ) -> tuple[str, str]:
     _ensure_maze_importable(maze_repo_dir)
-    from maze_dataset import MazeDataset, MazeDatasetConfig
-    from maze_dataset.generation import LatticeMazeGenerators
+    MazeDataset, MazeDatasetConfig, LatticeMazeGenerators = _import_maze_dataset()
 
     if seed is not None:
         random.seed(seed)
@@ -125,7 +166,12 @@ def _generate_maze_samples(
         image_filename = f"maze_{i:04d}.png"
         image_path = os.path.join(img_dir, image_filename)
         Image.fromarray(pixels).save(image_path)
-        rows.append(_build_single_sample(maze, image_filename))
+        viz_name: str | None = None
+        if save_solution_viz:
+            viz_name = f"maze_{i:04d}_with_path.png"
+            pixels_viz = maze.as_pixels(show_endpoints=True, show_solution=True)
+            Image.fromarray(pixels_viz).save(os.path.join(img_dir, viz_name))
+        rows.append(_build_single_sample(maze, image_filename, viz_name))
 
     qpath = os.path.join(gen_dir, "maze_eval_samples.json")
     with open(qpath, "w", encoding="utf-8") as f:
@@ -154,6 +200,11 @@ def main() -> None:
     p.add_argument("--output_dir", type=str, default=None)
     p.add_argument("--no_save", action="store_true")
     p.add_argument("--no_copy_images", action="store_true")
+    p.add_argument(
+        "--no_solution_viz",
+        action="store_true",
+        help="自动生成样本时不额外保存带解救路径的可视化图（默认保存 maze_XXXX_with_path.png）",
+    )
     args = p.parse_args()
 
     model_path = _resolve_model_path(args.model_path)
@@ -177,6 +228,7 @@ def main() -> None:
             n=max(args.n + args.start, 1),
             grid_n=args.grid_n,
             seed=args.seed,
+            save_solution_viz=not args.no_solution_viz,
         )
 
     if not os.path.isdir(image_dir):
@@ -258,6 +310,18 @@ def main() -> None:
         elif not args.no_save:
             rec["saved_image"] = None
 
+        viz_fn = item.get("viz_image_filename")
+        if viz_fn:
+            viz_src = os.path.join(image_dir, os.path.basename(viz_fn))
+            if os.path.isfile(viz_src):
+                rec["viz_source_image_path"] = viz_src
+                rel_viz = f"images/{row_idx:04d}_viz_{os.path.basename(viz_fn)}"
+                if not args.no_save and not args.no_copy_images:
+                    shutil.copy2(viz_src, os.path.join(out_dir, rel_viz))
+                    rec["saved_viz_image"] = rel_viz
+                elif not args.no_save:
+                    rec["saved_viz_image"] = None
+
         results_rows.append(rec)
 
         if args.jsonl:
@@ -302,6 +366,11 @@ def main() -> None:
             print("# 已写入 manifest.json、results.json", file=sys.stderr)
             if not args.no_copy_images:
                 print(f"# 图片副本: {os.path.join(out_dir, 'images')}", file=sys.stderr)
+                if not args.no_solution_viz and not args.questions_json:
+                    print(
+                        "# 带路径可视化: 与推理用图同目录下 maze_*_with_path.png；已尽量复制到 output images/",
+                        file=sys.stderr,
+                    )
 
 
 if __name__ == "__main__":
