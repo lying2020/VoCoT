@@ -1,0 +1,17 @@
+# GRPO 配置文件 (可被 GRPOConfig 读取)
+num_generations: 8          # 每组生成数量 (group size)
+max_completion_length: 256  # 最大生成长度
+learning_rate: 5.0e-6
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 4
+num_train_epochs: 1
+beta: 0.04                  # KL 惩罚系数
+epsilon: 0.2                # 裁剪参数
+logging_steps: 10
+save_steps: 500
+output_dir: "./grpo_output"
+report_to: "wandb"          # 可选: "wandb", "tensorboard", "none"
+# 以下为可选高级参数
+loss_agg_mode: "token-mean" # 损失聚合方式
+norm_adv_by_std_in_grpo: true
+use_vllm: false             # 是否使用 vLLM 加速生成
