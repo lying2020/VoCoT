@@ -59,9 +59,9 @@ def train_step(agent, optimizer, batch_data, K=8):
     batch_data: 包含 keys, values, positions, hop_steps, modal_types, importance, optimal_reward
     """
     n = batch_data['keys'].shape[0]
-    scores = agent(batch_data['keys'], batch_data['values'], 
+    scores = agent(batch_data['keys'], batch_data['values'],
                    batch_data['positions'], batch_data['hop_steps'], batch_data['modal_types'])
-    
+
     rewards = []
     log_probs = []
     for _ in range(K):
@@ -76,13 +76,13 @@ def train_step(agent, optimizer, batch_data, K=8):
         reward = compute_reward(perm, batch_data['importance'], batch_data['optimal_reward'])
         rewards.append(reward)
         log_probs.append(log_prob)
-    
+
     rewards = torch.stack(rewards)
     log_probs = torch.stack(log_probs)
     baseline = rewards.mean()
     advantages = rewards - baseline
     loss = -(advantages * log_probs).mean()
-    
+
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
@@ -151,7 +151,7 @@ class KVAgent(nn.Module):
         self.pos_enc = PositionalEncoding(pos_dim)
         self.hop_embed = nn.Embedding(num_embeddings=10, embedding_dim=hop_embed_dim)  # 假设最多10跳
         self.modal_embed = nn.Embedding(num_embeddings=2, embedding_dim=modal_embed_dim)
-        
+
         input_dim = k_dim + v_dim + pos_dim + hop_embed_dim + modal_embed_dim
         self.mlp = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -160,7 +160,7 @@ class KVAgent(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, 1)  # 输出标量分数
         )
-    
+
     def forward(self, keys, values, positions, hop_steps, modal_types):
         """
         keys: (n, k_dim)
