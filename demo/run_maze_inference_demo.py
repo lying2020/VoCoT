@@ -36,7 +36,7 @@ from PIL import Image
 from model.load_model import infer, load_model
 from project import volcano_7b_luoruipu1_path
 
-_REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
