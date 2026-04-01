@@ -3,13 +3,16 @@
 maze-dataset + VoCoT 本地推理试跑（测试样例）。
 
 功能：
-1) 默认从 ../maze-dataset 动态生成少量迷宫图与问答样本；
-2) 自动生成「带解救路径」的可视化图 maze_XXXX_with_path.png（供人对照；喂给模型的仍是无路径图）；
-3) 也支持通过 --questions_json 读取现成样本（list[dict]，可含 viz_image_filename）；
-4) 使用 VoCoT/VolCano 做逐条推理，输出 results/manifest。
-
-依赖 maze-dataset（Python>=3.10，含 jaxtyping 等）；缺依赖时会提示安装方式。
-
+支持通过 --questions_json 读取现成样本（list[dict]，可含 viz_image_filename）；
+使用 VoCoT/VolCano 做逐条推理，输出 results/manifest。
+1. 先进入到 maze_vocot 
+conda activate maze_vocot
+2. 再调用脚本生成 maze 图和json文件
+python generate_maze_eval_samples.py --out_dir /home1/cjl/MM_2026/maze_eval_tmp --n 32 --grid_n 9 --seed 0
+3. 然后退出 maze_vocot 环境
+conda deactivate
+4. 之后进入 vocot 环境，开始推理测试
+conda activate vocot
 在 VoCoT 仓库根目录执行：
   python run_maze_inference_demo.py
   python run_maze_inference_demo.py --n 8 --start 0 --option_in_context
