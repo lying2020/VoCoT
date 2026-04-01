@@ -24,6 +24,7 @@ import torch.distributed as dist
 from utils.logger import setup_logger
 import json
 import tqdm
+import contextlib
 
 
 def _resolve_local_clip_path():
@@ -145,27 +146,81 @@ def load_model(model_path, device='cuda:0', precision='bf16'):
 
     return model, preprocessor
 
-def _condition_one_batch(model, preprocessor, item, max_new_tokens, temperature):
+def _condition_one_batch(
+    model,
+    preprocessor,
+    item,
+    max_new_tokens,
+    temperature,
+    avoid_image_gen=True,
+    kv_tracer=None,
+    kv_sample_meta=None,
+):
     input_item = preprocessor(item)
     data_collator = SFT_DataCollator(tokenizer=preprocessor.tokenizer, sd_tokenizer=None)
     batch = data_collator([input_item])
-    txt_res, out_imgs, txt_ids = model.condition_completion(
-        batch,
-        avoid_image_gen=True,
-        max_new_tokens=max_new_tokens,
-        temperature=temperature,
-    )
-    return txt_res
+
+    ctx = contextlib.nullcontext()
+    if kv_tracer is not None:
+        from utils.kv_trace import build_prefill_modality_mask
+
+        kv_tracer.start_sample(kv_sample_meta or {})
+        mask = build_prefill_modality_mask(
+            batch["input_ids"].cpu(),
+            model.input_img_id,
+            model.n_query,
+        )
+        kv_tracer.set_prefill_modality(mask)
+        ctx = kv_tracer
+
+    with ctx:
+        txt_res, out_imgs, txt_ids = model.condition_completion(
+            batch,
+            avoid_image_gen=avoid_image_gen,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+        )
+    return txt_res, out_imgs, txt_ids
 
 
-def infer(model, preprocessor, image, query, cot=True, max_new_tokens=1024, temperature=0.0):
+def infer(
+    model,
+    preprocessor,
+    image,
+    query,
+    cot=True,
+    max_new_tokens=1024,
+    temperature=0.0,
+    avoid_image_gen=True,
+    kv_tracer=None,
+    kv_sample_meta=None,
+    return_full=False,
+):
     if cot:
-        query = ALL_IMG_TOKENS_STR + DEFAULT_GRD_TOKEN + '\n' + query + COT_ACTIVATION
+        query = (
+            ALL_IMG_TOKENS_STR
+            + DEFAULT_GRD_TOKEN
+            + "\n"
+            + query
+            + COT_ACTIVATION
+        )
     else:
-        query = ALL_IMG_TOKENS_STR + '\n' + query
-    conv = [{'from': 'human', 'value': query}]
-    item = {'input_images': [image], 'conversation': conv}
-    return _condition_one_batch(model, preprocessor, item, max_new_tokens, temperature)
+        query = ALL_IMG_TOKENS_STR + "\n" + query
+    conv = [{"from": "human", "value": query}]
+    item = {"input_images": [image], "conversation": conv}
+    pack = _condition_one_batch(
+        model,
+        preprocessor,
+        item,
+        max_new_tokens,
+        temperature,
+        avoid_image_gen=avoid_image_gen,
+        kv_tracer=kv_tracer,
+        kv_sample_meta=kv_sample_meta,
+    )
+    if return_full or kv_tracer is not None:
+        return pack
+    return pack[0]
 
 
 def infer_multiturn(
@@ -205,7 +260,9 @@ def infer_multiturn(
             conv.append({'from': 'gpt', 'value': text})
 
     item = {'input_images': [image], 'conversation': conv}
-    return _condition_one_batch(model, preprocessor, item, max_new_tokens, temperature)
+    return _condition_one_batch(
+        model, preprocessor, item, max_new_tokens, temperature, avoid_image_gen=True,
+    )[0]
 
 
 def infer_multihop_document(
