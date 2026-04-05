@@ -511,7 +511,16 @@ class VolCanoMistralForCausalLM(MistralForCausalLM, VolCanoMetaForCausalLM):
         last_hidden_state = torch.cat(last_hidden_state,dim=1)
         return last_hidden_state
 
-    def condition_completion(self, input_dict, temperature=0.2, max_new_tokens=128, guidance_scale=7.5, avoid_image_gen=False, **kwargs):
+    def condition_completion(
+        self,
+        input_dict,
+        temperature=0.2,
+        max_new_tokens=128,
+        guidance_scale=7.5,
+        avoid_image_gen=False,
+        output_scores: bool = False,
+        **kwargs,
+    ):
         
         self.to_generate_images = []
         self.cache_images = None
@@ -528,18 +537,25 @@ class VolCanoMistralForCausalLM(MistralForCausalLM, VolCanoMetaForCausalLM):
             input_dict['input_images'] = [item.to(self.dtype).to(self.device) if item is not None else item for item in input_dict['input_images']]
         else:
             input_dict['input_images'] = [input_dict['input_images'].to(self.dtype).to(self.device)] if input_dict['input_images'] is not None else [None]
+        gen_kw = dict(
+            input_ids=input_dict["input_ids"].to(self.device),
+            input_images=input_dict["input_images"] if input_dict["input_images"] is not None else [None],
+            attention_mask=input_dict["attention_mask"].to(self.device),
+            box=input_dict["box"] if "box" in input_dict else None,
+            do_sample=True if temperature > 0 else False,
+            temperature=temperature,
+            max_new_tokens=max_new_tokens,
+            pad_token_id=self.tokenizer.pad_token_id,
+            return_dict_in_generate=True,
+        )
+        if output_scores:
+            gen_kw["output_scores"] = True
         with torch.no_grad():
-            text_out = self.generate(
-                        input_ids = input_dict['input_ids'].to(self.device), # TODO unsqueeze is for bs==1
-                        input_images=input_dict['input_images'] if input_dict['input_images'] is not None else [None],
-                        attention_mask = input_dict['attention_mask'].to(self.device),
-                        box = input_dict['box'] if 'box' in input_dict else None,
-                        do_sample = True if temperature > 0 else False,
-                        temperature=temperature,
-                        max_new_tokens = max_new_tokens,
-                        pad_token_id = self.tokenizer.pad_token_id,
-                        return_dict_in_generate = True
-                    )
+            text_out = self.generate(**gen_kw)
+        if output_scores and getattr(text_out, "scores", None) is not None:
+            self._last_generate_scores = text_out.scores
+        else:
+            self._last_generate_scores = None
 
         input_token_len = input_dict['input_ids'].shape[1]
         n_diff_input_output = (input_dict['input_ids'].to(self.device) != text_out.sequences[:, :input_token_len]).sum().item()

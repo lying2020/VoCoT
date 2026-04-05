@@ -12,7 +12,7 @@
     images/
       maze_0000.png                 # 给模型的输入图（无路径）
       maze_0000_with_path.png        # 人工对照图（带路径，可选）
-    maze_eval_samples.json           # list[dict]，含 question/answer/answer_options/image_filename/viz_image_filename/meta
+    maze_eval_samples.json           # list[dict]：路径规划题；answer 为 path 的 JSON 数组字符串；meta.path_cells 为 GT
 """
 
 from __future__ import annotations
@@ -40,17 +40,28 @@ def _ensure_maze_importable(maze_repo_dir: str | None) -> None:
 def _build_single_sample(solved_maze: Any, image_filename: str, viz_image_filename: str | None) -> dict[str, Any]:
     start = tuple(int(x) for x in solved_maze.start_pos.tolist())
     end = tuple(int(x) for x in solved_maze.end_pos.tolist())
-    answer = "yes" if start[1] < end[1] else "no"
+    sol = np.asarray(solved_maze.solution)
+    path_cells = [[int(sol[i, 0]), int(sol[i, 1])] for i in range(sol.shape[0])]
+    # 与评分脚本对齐：紧凑 JSON 字符串，无额外空格
+    answer = json.dumps(path_cells, separators=(",", ":"))
+
     row: dict[str, Any] = {
-        "question": "Is the green start point on the left side of the red end point? Answer yes or no.",
+        "question": (
+            "The image is a maze: the green marker is the start, the red marker is the end, white cells are "
+            "walkable, black is wall. Find a valid orthogonal path from start to end (only up/down/left/right "
+            "between adjacent walkable cells, never through walls). Reply with the full path as a JSON array of "
+            "[row, column] coordinates from the start cell to the end cell, e.g. [[3,3],[3,4],...]. Use only the "
+            "maze image without a drawn solution path."
+        ),
         "answer": answer,
-        "answer_options": ["yes", "no"],
         "image_filename": image_filename,
         "meta": {
-            "start_rc": start,
-            "end_rc": end,
+            "task": "maze_path",
+            "start_rc": list(start),
+            "end_rc": list(end),
             "grid_n": int(solved_maze.grid_n),
-            "path_len": int(solved_maze.solution.shape[0]),
+            "path_len": int(sol.shape[0]),
+            "path_cells": path_cells,
         },
     }
     if viz_image_filename:

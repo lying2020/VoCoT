@@ -168,6 +168,42 @@ def infer(model, preprocessor, image, query, cot=True, max_new_tokens=1024, temp
     return _condition_one_batch(model, preprocessor, item, max_new_tokens, temperature)
 
 
+def infer_with_generation_scores(
+    model,
+    preprocessor,
+    image,
+    query,
+    cot=True,
+    max_new_tokens=1024,
+    temperature=0.0,
+):
+    """
+    与 infer 相同提示构造与 batch，但 generate 时 output_scores=True。
+    返回 (pred_text_list, output_images, sequences, scores_tuple | None, input_token_len)；
+    scores 为每解码一步的 logits (batch, vocab)，与 sequences 中**新生成** token 可能对不齐（如 EOC 注入多 token），
+    调用方应对齐 min(len(scores), len(gen_ids)) 并见 utils.token_entropy_viz。
+    """
+    if cot:
+        query = ALL_IMG_TOKENS_STR + DEFAULT_GRD_TOKEN + "\n" + query + COT_ACTIVATION
+    else:
+        query = ALL_IMG_TOKENS_STR + "\n" + query
+    conv = [{"from": "human", "value": query}]
+    item = {"input_images": [image], "conversation": conv}
+    input_item = preprocessor(item)
+    data_collator = SFT_DataCollator(tokenizer=preprocessor.tokenizer, sd_tokenizer=None)
+    batch = data_collator([input_item])
+    input_token_len = int(batch["input_ids"].shape[1])
+    txt_res, out_imgs, txt_ids = model.condition_completion(
+        batch,
+        avoid_image_gen=True,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        output_scores=True,
+    )
+    scores = getattr(model, "_last_generate_scores", None)
+    return txt_res, out_imgs, txt_ids, scores, input_token_len
+
+
 def infer_multiturn(
     model,
     preprocessor,
